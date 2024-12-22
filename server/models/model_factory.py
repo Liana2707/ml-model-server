@@ -1,5 +1,7 @@
 
 from abc import ABC
+import os
+import pickle
 
 from models.logistic_regression import LogisticRegression
 from models.linear_regression import LinearRegression
@@ -23,3 +25,16 @@ class ModelFactory(ABC):
             return model_class(model_name, params)
         else:
             raise ValueError(f"Неизвестная модель: {model_type}")
+        
+    # https://nerdit.ru/sokhranieniie-modieliei-v-pickle-format/
+    def save(self, model_dir):
+        model_path = os.path.join(model_dir, f"{self.model_name}.pkl")
+        with open(model_path, "wb") as f: 
+            pickle.dump(self, f)
+
+    # https://nerdit.ru/sokhranieniie-modieliei-v-pickle-format/
+    @classmethod
+    def load(cls, model_dir, model_name):
+        model_path = os.path.join(model_dir, f"{model_name}.pkl")
+        with open(model_path, "rb") as f:
+            return pickle.load(f)
