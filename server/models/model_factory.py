@@ -5,11 +5,13 @@ import pickle
 
 from models.logistic_regression import LogisticRegression
 from models.linear_regression import LinearRegression
+from models.knn_model import KNNModel
 
 
 class ModelFactory(ABC):
     models = {'LogisticRegression': LogisticRegression,
              'LinearRegression': LinearRegression,
+             'KNN': KNNModel
             }
     
     @classmethod
