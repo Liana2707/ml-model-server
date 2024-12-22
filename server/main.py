@@ -1,4 +1,5 @@
 from asyncio import Semaphore, create_task
+import asyncio
 import glob
 import os
 from typing import Any, Dict
@@ -38,8 +39,6 @@ async def load(load_request: LoadRequest):
         loaded_models[model_name] = model_wrapper
     except FileNotFoundError:
          raise HTTPException(status_code=400, detail=f"Модель с именем `{model_name}` не найдена на диске")
-    except Exception as e:
-         raise HTTPException(status_code=400, detail=f"Ошибка во время загрузки модели: {e}")
     
     return Response(message=f"Модель {model_name} загружена.")
 
@@ -91,7 +90,7 @@ async def fit(fit_request: FitRequest):
             process_semaphore.release() 
             del active_tasks[fit_request.model_name]
 
-    active_tasks[fit_request.model_name] = create_task(train_model())
+    active_tasks[model_name] = create_task(train_model())
     return Response(message=f"Обучение модели `{fit_request.model_name}` запущено.")
 
 
@@ -135,14 +134,13 @@ async def get_training_status(model_name: str):
     """
     Возвращает статус задачи обучения для указанной модели.
     """
-    if model_name not in active_tasks:
+    if model_name not in active_tasks.keys():
         return Response(status_code=404, message=f"Задача обучения для модели `{model_name}` не найдена.")
 
     task = active_tasks[model_name]
 
     if task.done():
         try:
-            result = task.result() 
             return Response(message=f"Обучение модели `{model_name}` завершено.")
         except Exception as e:
             return Response(status_code=400,message=f"Ошибка во время обучения модели `{model_name}`: {e}")
