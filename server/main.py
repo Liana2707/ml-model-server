@@ -1,5 +1,7 @@
 from functools import lru_cache
+import glob
 import multiprocessing
+import os
 from typing import Any, Dict
 from fastapi import Depends, FastAPI, HTTPException
 from typing_extensions import Annotated
@@ -71,7 +73,7 @@ async def fit(fit_request: FitRequest, settings: Annotated[Settings, Depends(get
     try:
         model = ModelFactory.create_algorithm(model_name, model_type, params)
         model.train(fit_request.X, fit_request.y)
-        model.save(settings.model_dir)
+        ModelFactory.save(model, model_name, settings.model_dir)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Произошла ошибка при обучении и сохранении модели: {e}")
     return Response(message=f"Обучение модели `{model_name}` выполнено.")
@@ -87,6 +89,30 @@ async def predict(predict_request: PredictRequest):
         return Response(message=f"Предсказание для модели {model_name}: {predictions}")
     except Exception as e:
           raise HTTPException(status_code=400, detail=f"Ошибка во время предсказания модели: {e}")
+    
+@app.delete("/models/remove_all", response_model=Response)
+async def remove_all_models(settings: Annotated[Settings, Depends(get_settings)]):
+    model_dir = settings.model_dir
+    try:
+        pkl_files = glob.glob(os.path.join(model_dir, "*.pkl"))
+        for file_path in pkl_files:
+            os.remove(file_path)
+        return Response(message=f"Все модели удалены с диска")
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Ошибка удаления моделей: {e}")
+    
+@app.delete("/models/remove", response_model=Response, responses={400: {"model": ErrorResponse}})
+async def remove_model(model_name: str, settings: Annotated[Settings, Depends(get_settings)]):
+    model_path = os.path.join(settings.model_dir, f"{model_name}.pkl")
+
+    if not os.path.exists(model_path):
+        raise HTTPException(status_code=404, detail=f"Модель {model_name}.pkl не найдена на диске")
+    try:
+        os.remove(model_path)
+        return Response(message=f"Модель {model_name}.pkl удалена с диска.")
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Ошибка удаления модели с диска: {e}")
+
 
 
 

@@ -27,10 +27,11 @@ class ModelFactory(ABC):
             raise ValueError(f"Неизвестная модель: {model_type}")
         
     # https://nerdit.ru/sokhranieniie-modieliei-v-pickle-format/
-    def save(self, model_dir):
-        model_path = os.path.join(model_dir, f"{self.model_name}.pkl")
+    @classmethod
+    def save(cls, model, model_name, model_dir):
+        model_path = os.path.join(model_dir, f"{model_name}.pkl")
         with open(model_path, "wb") as f: 
-            pickle.dump(self, f)
+            pickle.dump(model, f)
 
     # https://nerdit.ru/sokhranieniie-modieliei-v-pickle-format/
     @classmethod
