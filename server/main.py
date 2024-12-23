@@ -1,5 +1,6 @@
 from asyncio import Semaphore, create_task
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 import glob
 import os
 from typing import Any, Dict
@@ -14,14 +15,13 @@ from models.model_factory import ModelFactory
 async def lifespan(app: FastAPI):
     global settings
     settings = Settings()
-    global process_semaphore
-    process_semaphore = Semaphore(settings.num_cores - 1)
+    global active_processes
+    active_processes = asyncio.Semaphore(settings.num_cores - 1)  
     yield
 
 app = FastAPI(lifespan=lifespan)
 
-loaded_models: Dict[str, Any] = {}
-active_tasks: Dict[str, Any] = {}
+loaded_models = {}
 
 
 @app.post("/load", response_model=Response, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
@@ -59,39 +59,24 @@ async def fit(fit_request: FitRequest):
     model_name = fit_request.model_name
     model_type = fit_request.model_type
 
-    if model_name in active_tasks:
-        raise HTTPException(status_code=400, detail=f"Модель с именем `{fit_request.model_name}` уже обучается")
-
     if not model_name or not model_type:
         raise HTTPException(status_code=404, detail="Необходимо указать имя модели и тип модели")
 
     if model_type not in ModelFactory.models.keys():
          raise HTTPException(status_code=400, detail="Указан неправильный тип модели")
-    
-    # Блокировка семафора
-    if not process_semaphore.locked():
-        await process_semaphore.acquire()
-    else:
-        raise HTTPException(status_code=400, detail="Достигнуто максимальное количество задач обучения")
-
-    async def train_model():
-        """
-        Асинхронная функция для обучения модели.
-        """
-        try:
-            params = fit_request.config.get("params")
-            model = ModelFactory.create_algorithm(model_name, model_type, params)
-            model.train(fit_request.X, fit_request.y)
-            ModelFactory.save(model, model_name, settings.model_dir)
-            return Response(message=f"Обучение модели `{fit_request.model_name}` выполнено.")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Произошла ошибка при обучении и сохранении модели: {e}")
-        finally:
-            process_semaphore.release() 
-            del active_tasks[fit_request.model_name]
-
-    active_tasks[model_name] = create_task(train_model())
-    return Response(message=f"Обучение модели `{fit_request.model_name}` запущено.")
+  
+    if not active_processes.locked():
+        async with active_processes:
+            try:
+                loop = asyncio.get_event_loop()
+                with ProcessPoolExecutor() as executor:
+                    params = fit_request.config.get("params")
+                    model = ModelFactory.create_algorithm(model_name, model_type, params)
+                    model = await loop.run_in_executor(executor, model.train, fit_request.X, fit_request.y)
+                    ModelFactory.save(model, model_name, settings.model_dir)
+                    return Response(message=f"Обучение модели `{fit_request.model_name}` выполнено.")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Произошла ошибка при обучении и сохранении модели: {e}")
 
 
 @app.post("/predict", response_model=Response, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}})
@@ -127,22 +112,4 @@ async def remove_model(model_name: str):
         return Response(message=f"Модель {model_name}.pkl удалена с диска.")
     except OSError as e:
         raise HTTPException(status_code=400, detail=f"Ошибка удаления модели с диска: {e}")
-
-
-@app.get("/status", response_model=Response)
-async def get_training_status(model_name: str):
-    """
-    Возвращает статус задачи обучения для указанной модели.
-    """
-    if model_name not in active_tasks.keys():
-        return Response(status_code=404, message=f"Задача обучения для модели `{model_name}` не найдена.")
-
-    task = active_tasks[model_name]
-
-    if task.done():
-        try:
-            return Response(message=f"Обучение модели `{model_name}` завершено.")
-        except Exception as e:
-            return Response(status_code=400,message=f"Ошибка во время обучения модели `{model_name}`: {e}")
-    else:
-        return Response(message=f"Обучение модели `{model_name}` все еще выполняется.")
+    
