@@ -1,5 +1,11 @@
 # ml-model-server
 
+Как развернуть: 
+
+docker build -t ml-server .
+
+docker run -d --name mycontainer -p 80:80 --env-file ./server/.env ml-server
+
 ### Постановка задачи:
 
 **Серверная часть:**
